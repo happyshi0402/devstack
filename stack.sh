@@ -221,7 +221,7 @@ write_devstack_version
 
 # Warn users who aren't on an explicitly supported distro, but allow them to
 # override check and attempt installation with ``FORCE=yes ./stack``
-if [[ ! ${DISTRO} =~ (xenial|artful|bionic|stretch|jessie|f25|f26|f27|opensuse-42.3|opensuse-tumbleweed|rhel7) ]]; then
+if [[ ! ${DISTRO} =~ (xenial|artful|bionic|stretch|jessie|f27|f28|opensuse-42.3|opensuse-tumbleweed|rhel7) ]]; then
     echo "WARNING: this script has not been tested on $DISTRO"
     if [[ "$FORCE" != "yes" ]]; then
         die $LINENO "If you wish to run this script anyway run with FORCE=yes"
@@ -894,6 +894,8 @@ if is_service_enabled neutron; then
     stack_install_service neutron
 fi
 
+# Nova configuration is used by placement so we need to create nova.conf
+# first.
 if is_service_enabled nova; then
     # Compute service
     stack_install_service nova
@@ -1184,6 +1186,13 @@ if is_service_enabled cinder; then
     init_cinder
 fi
 
+# Placement Service
+# ---------------
+
+if is_service_enabled placement; then
+    echo_summary "Configuring placement"
+    init_placement
+fi
 
 # Compute Service
 # ---------------
@@ -1200,11 +1209,6 @@ if is_service_enabled nova; then
     fi
 
     init_nova_cells
-fi
-
-if is_service_enabled placement; then
-    echo_summary "Configuring placement"
-    init_placement
 fi
 
 

@@ -26,6 +26,7 @@ Plugin Name                            URL
 ====================================== ===
 almanach                               `git://git.openstack.org/openstack/almanach <https://git.openstack.org/cgit/openstack/almanach>`__
 aodh                                   `git://git.openstack.org/openstack/aodh <https://git.openstack.org/cgit/openstack/aodh>`__
+apmec                                  `git://git.openstack.org/openstack/apmec <https://git.openstack.org/cgit/openstack/apmec>`__
 astara                                 `git://git.openstack.org/openstack/astara <https://git.openstack.org/cgit/openstack/astara>`__
 barbican                               `git://git.openstack.org/openstack/barbican <https://git.openstack.org/cgit/openstack/barbican>`__
 bilean                                 `git://git.openstack.org/openstack/bilean <https://git.openstack.org/cgit/openstack/bilean>`__
@@ -59,6 +60,7 @@ drbd-devstack                          `git://git.openstack.org/openstack/drbd-d
 ec2-api                                `git://git.openstack.org/openstack/ec2-api <https://git.openstack.org/cgit/openstack/ec2-api>`__
 freezer                                `git://git.openstack.org/openstack/freezer <https://git.openstack.org/cgit/openstack/freezer>`__
 freezer-api                            `git://git.openstack.org/openstack/freezer-api <https://git.openstack.org/cgit/openstack/freezer-api>`__
+freezer-tempest-plugin                 `git://git.openstack.org/openstack/freezer-tempest-plugin <https://git.openstack.org/cgit/openstack/freezer-tempest-plugin>`__
 freezer-web-ui                         `git://git.openstack.org/openstack/freezer-web-ui <https://git.openstack.org/cgit/openstack/freezer-web-ui>`__
 fuxi                                   `git://git.openstack.org/openstack/fuxi <https://git.openstack.org/cgit/openstack/fuxi>`__
 gce-api                                `git://git.openstack.org/openstack/gce-api <https://git.openstack.org/cgit/openstack/gce-api>`__
@@ -98,6 +100,7 @@ monasca-tempest-plugin                 `git://git.openstack.org/openstack/monasc
 monasca-transform                      `git://git.openstack.org/openstack/monasca-transform <https://git.openstack.org/cgit/openstack/monasca-transform>`__
 murano                                 `git://git.openstack.org/openstack/murano <https://git.openstack.org/cgit/openstack/murano>`__
 networking-6wind                       `git://git.openstack.org/openstack/networking-6wind <https://git.openstack.org/cgit/openstack/networking-6wind>`__
+networking-ansible                     `git://git.openstack.org/openstack/networking-ansible <https://git.openstack.org/cgit/openstack/networking-ansible>`__
 networking-arista                      `git://git.openstack.org/openstack/networking-arista <https://git.openstack.org/cgit/openstack/networking-arista>`__
 networking-bagpipe                     `git://git.openstack.org/openstack/networking-bagpipe <https://git.openstack.org/cgit/openstack/networking-bagpipe>`__
 networking-baremetal                   `git://git.openstack.org/openstack/networking-baremetal <https://git.openstack.org/cgit/openstack/networking-baremetal>`__
@@ -163,6 +166,7 @@ scalpels                               `git://git.openstack.org/openstack/scalpe
 searchlight                            `git://git.openstack.org/openstack/searchlight <https://git.openstack.org/cgit/openstack/searchlight>`__
 searchlight-ui                         `git://git.openstack.org/openstack/searchlight-ui <https://git.openstack.org/cgit/openstack/searchlight-ui>`__
 senlin                                 `git://git.openstack.org/openstack/senlin <https://git.openstack.org/cgit/openstack/senlin>`__
+slogging                               `git://git.openstack.org/openstack/slogging <https://git.openstack.org/cgit/openstack/slogging>`__
 solum                                  `git://git.openstack.org/openstack/solum <https://git.openstack.org/cgit/openstack/solum>`__
 stackube                               `git://git.openstack.org/openstack/stackube <https://git.openstack.org/cgit/openstack/stackube>`__
 storlets                               `git://git.openstack.org/openstack/storlets <https://git.openstack.org/cgit/openstack/storlets>`__

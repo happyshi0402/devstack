@@ -28,6 +28,12 @@ set +o xtrace
 # Set up default directories
 GITDIR["python-neutronclient"]=$DEST/python-neutronclient
 
+# NEUTRON_DEPLOY_MOD_WSGI defines how neutron is deployed, allowed values:
+# - False (default) : Run neutron under Eventlet
+# - True : Run neutron under uwsgi
+# TODO(annp): Switching to uwsgi in next cycle if things turn out to be stable
+# enough
+NEUTRON_DEPLOY_MOD_WSGI=${NEUTRON_DEPLOY_MOD_WSGI:-False}
 NEUTRON_AGENT=${NEUTRON_AGENT:-openvswitch}
 NEUTRON_DIR=$DEST/neutron
 NEUTRON_AUTH_CACHE_DIR=${NEUTRON_AUTH_CACHE_DIR:-/var/cache/neutron}
@@ -57,6 +63,8 @@ NEUTRON_CREATE_INITIAL_NETWORKS=${NEUTRON_CREATE_INITIAL_NETWORKS:-True}
 
 NEUTRON_STATE_PATH=${NEUTRON_STATE_PATH:=$DATA_DIR/neutron}
 NEUTRON_AUTH_CACHE_DIR=${NEUTRON_AUTH_CACHE_DIR:-/var/cache/neutron}
+
+NEUTRON_UWSGI_CONF=$NEUTRON_CONF_DIR/neutron-api-uwsgi.ini
 
 # By default, use the ML2 plugin
 NEUTRON_CORE_PLUGIN=${NEUTRON_CORE_PLUGIN:-ml2}
@@ -220,8 +228,8 @@ function configure_neutron_new {
         if [[ $NEUTRON_AGENT == "linuxbridge" ]]; then
             iniset $NEUTRON_CORE_PLUGIN_CONF securitygroup firewall_driver iptables
             iniset $NEUTRON_CORE_PLUGIN_CONF vxlan local_ip $HOST_IP
-        else
-            iniset $NEUTRON_CORE_PLUGIN_CONF securitygroup firewall_driver iptables_hybrid
+        elif [[ $NEUTRON_AGENT == "openvswitch" ]]; then
+            iniset $NEUTRON_CORE_PLUGIN_CONF securitygroup firewall_driver openvswitch
             iniset $NEUTRON_CORE_PLUGIN_CONF ovs local_ip $HOST_IP
 
             if [[ "$NEUTRON_DISTRIBUTED_ROUTING" = "True" ]]; then
@@ -286,7 +294,7 @@ function configure_neutron_new {
     # Format logging
     setup_logging $NEUTRON_CONF
 
-    if is_service_enabled tls-proxy; then
+    if is_service_enabled tls-proxy && [ "$NEUTRON_DEPLOY_MOD_WSGI" == "False" ]; then
         # Set the service port for a proxy to take the original
         iniset $NEUTRON_CONF DEFAULT bind_port "$NEUTRON_SERVICE_PORT_INT"
         iniset $NEUTRON_CONF oslo_middleware enable_proxy_headers_parsing True
@@ -325,25 +333,28 @@ function configure_neutron_rootwrap {
 }
 
 # Make Neutron-required changes to nova.conf
+# Takes a single optional argument which is the config file to update,
+# if not passed $NOVA_CONF is used.
 function configure_neutron_nova_new {
-    iniset $NOVA_CONF DEFAULT use_neutron True
-    iniset $NOVA_CONF neutron auth_type "password"
-    iniset $NOVA_CONF neutron auth_url "$KEYSTONE_SERVICE_URI"
-    iniset $NOVA_CONF neutron username neutron
-    iniset $NOVA_CONF neutron password "$SERVICE_PASSWORD"
-    iniset $NOVA_CONF neutron user_domain_name "Default"
-    iniset $NOVA_CONF neutron project_name "$SERVICE_TENANT_NAME"
-    iniset $NOVA_CONF neutron project_domain_name "Default"
-    iniset $NOVA_CONF neutron auth_strategy $NEUTRON_AUTH_STRATEGY
-    iniset $NOVA_CONF neutron region_name "$REGION_NAME"
+    local conf=${1:-$NOVA_CONF}
+    iniset $conf DEFAULT use_neutron True
+    iniset $conf neutron auth_type "password"
+    iniset $conf neutron auth_url "$KEYSTONE_SERVICE_URI"
+    iniset $conf neutron username neutron
+    iniset $conf neutron password "$SERVICE_PASSWORD"
+    iniset $conf neutron user_domain_name "Default"
+    iniset $conf neutron project_name "$SERVICE_TENANT_NAME"
+    iniset $conf neutron project_domain_name "Default"
+    iniset $conf neutron auth_strategy $NEUTRON_AUTH_STRATEGY
+    iniset $conf neutron region_name "$REGION_NAME"
 
-    iniset $NOVA_CONF DEFAULT firewall_driver nova.virt.firewall.NoopFirewallDriver
+    iniset $conf DEFAULT firewall_driver nova.virt.firewall.NoopFirewallDriver
 
     # optionally set options in nova_conf
-    neutron_plugin_create_nova_conf
+    neutron_plugin_create_nova_conf $conf
 
     if is_service_enabled neutron-metadata-agent; then
-        iniset $NOVA_CONF neutron service_metadata_proxy "True"
+        iniset $conf neutron service_metadata_proxy "True"
     fi
 
 }
@@ -354,6 +365,15 @@ function configure_neutron_nova_new {
 
 # create_neutron_accounts() - Create required service accounts
 function create_neutron_accounts_new {
+    local neutron_url
+
+    if [ "$NEUTRON_DEPLOY_MOD_WSGI" == "True" ]; then
+        neutron_url=$NEUTRON_SERVICE_PROTOCOL://$NEUTRON_SERVICE_HOST/networking/
+    else
+        neutron_url=$NEUTRON_SERVICE_PROTOCOL://$NEUTRON_SERVICE_HOST:$NEUTRON_SERVICE_PORT/
+    fi
+
+
     if [[ "$ENABLED_SERVICES" =~ "neutron-api" ]]; then
 
         create_service_user "neutron"
@@ -361,8 +381,7 @@ function create_neutron_accounts_new {
         neutron_service=$(get_or_create_service "neutron" \
             "network" "Neutron Service")
         get_or_create_endpoint $neutron_service \
-            "$REGION_NAME" \
-            "$NEUTRON_SERVICE_PROTOCOL://$NEUTRON_SERVICE_HOST:$NEUTRON_SERVICE_PORT/"
+            "$REGION_NAME" "$neutron_url"
     fi
 }
 
@@ -424,6 +443,7 @@ function install_neutronclient {
 function start_neutron_api {
     local service_port=$NEUTRON_SERVICE_PORT
     local service_protocol=$NEUTRON_SERVICE_PROTOCOL
+    local neutron_url
     if is_service_enabled tls-proxy; then
         service_port=$NEUTRON_SERVICE_PORT_INT
         service_protocol="http"
@@ -437,17 +457,24 @@ function start_neutron_api {
         opts+=" --config-file $cfg_file"
     done
 
-    # Start the Neutron service
-    # TODO(sc68cal) Stop hard coding this
-    run_process neutron-api "$NEUTRON_BIN_DIR/neutron-server $opts"
-
-    if ! wait_for_service $SERVICE_TIMEOUT $service_protocol://$NEUTRON_SERVICE_HOST:$service_port; then
-        die $LINENO "neutron-api did not start"
+    if [ "$NEUTRON_DEPLOY_MOD_WSGI" == "True" ]; then
+        run_process neutron-api "$NEUTRON_BIN_DIR/uwsgi --procname-prefix neutron-api --ini $NEUTRON_UWSGI_CONF"
+        neutron_url=$service_protocol://$NEUTRON_SERVICE_HOST/networking/
+        enable_service neutron-rpc-server
+        run_process neutron-rpc-server "$NEUTRON_BIN_DIR/neutron-rpc-server $opts"
+    else
+        # Start the Neutron service
+        # TODO(sc68cal) Stop hard coding this
+        run_process neutron-api "$NEUTRON_BIN_DIR/neutron-server $opts"
+        neutron_url=$service_protocol://$NEUTRON_SERVICE_HOST:$service_port
+        # Start proxy if enabled
+        if is_service_enabled tls-proxy; then
+            start_tls_proxy neutron '*' $NEUTRON_SERVICE_PORT $NEUTRON_SERVICE_HOST $NEUTRON_SERVICE_PORT_INT
+        fi
     fi
 
-    # Start proxy if enabled
-    if is_service_enabled tls-proxy; then
-        start_tls_proxy neutron '*' $NEUTRON_SERVICE_PORT $NEUTRON_SERVICE_HOST $NEUTRON_SERVICE_PORT_INT
+    if ! wait_for_service $SERVICE_TIMEOUT $neutron_url; then
+        die $LINENO "neutron-api did not start"
     fi
 }
 
@@ -493,6 +520,10 @@ function stop_neutron_new {
     for serv in neutron-api neutron-agent neutron-l3; do
         stop_process $serv
     done
+
+    if is_service_enabled neutron-rpc-server; then
+        stop_process neutron-rpc-server
+    fi
 
     if is_service_enabled neutron-dhcp; then
         stop_process neutron-dhcp
@@ -548,6 +579,13 @@ function neutron_deploy_rootwrap_filters_new {
 # neutron-legacy is removed.
 # TODO(sc68cal) Remove when neutron-legacy is no more.
 function cleanup_neutron {
+    if [ "$NEUTRON_DEPLOY_MOD_WSGI" == "True" ]; then
+        stop_process neutron-api
+        stop_process neutron-rpc-server
+        remove_uwsgi_config "$NEUTRON_UWSGI_CONF" "$NEUTRON_BIN_DIR/neutron-api"
+        sudo rm -f $(apache_site_config_for neutron-api)
+    fi
+
     if is_neutron_legacy_enabled; then
         # Call back to old function
         cleanup_mutnauq "$@"
@@ -563,14 +601,32 @@ function configure_neutron {
     else
         configure_neutron_new "$@"
     fi
+
+    if [ "$NEUTRON_DEPLOY_MOD_WSGI" == "True" ]; then
+        write_uwsgi_config "$NEUTRON_UWSGI_CONF" "$NEUTRON_BIN_DIR/neutron-api" "/networking"
+    fi
 }
 
 function configure_neutron_nova {
     if is_neutron_legacy_enabled; then
         # Call back to old function
-        create_nova_conf_neutron "$@"
+        create_nova_conf_neutron $NOVA_CONF
+        if [[ "${CELLSV2_SETUP}" == "superconductor" ]]; then
+            for i in $(seq 1 $NOVA_NUM_CELLS); do
+                local conf
+                conf=$(conductor_conf $i)
+                create_nova_conf_neutron $conf
+            done
+        fi
     else
-        configure_neutron_nova_new "$@"
+        configure_neutron_nova_new $NOVA_CONF
+        if [[ "${CELLSV2_SETUP}" == "superconductor" ]]; then
+            for i in $(seq 1 $NOVA_NUM_CELLS); do
+                local conf
+                conf=$(conductor_conf $i)
+                configure_neutron_nova_new $conf
+            done
+        fi
     fi
 }
 
